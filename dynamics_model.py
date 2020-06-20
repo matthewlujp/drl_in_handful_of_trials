@@ -79,7 +79,7 @@ class DynamicsModel(nn.Module):
 
 
 class DynamicsModelTrainer:
-    def __init__(self, dynamics_model, device_name, ensamble_size, validation_data_size=2):
+    def __init__(self, dynamics_model, device_name, ensamble_size):
         self.dynamics_model = dynamics_model
         self.device_name = device_name
         self.ensemble_size = ensamble_size
@@ -87,7 +87,6 @@ class DynamicsModelTrainer:
         self.train_targets=[]
         self.val_inputs=[]
         self.val_targets=[]
-        self.validation_data_size = validation_data_size
 
         self.optim = torch.optim.Adam(self.dynamics_model.parameters(), weight_decay=0.01)
 
@@ -116,18 +115,13 @@ class DynamicsModelTrainer:
             new_inputs.extend(list(torch.cat((obs_t[:-1], actions_t), dim=-1)))
             new_targets.extend(list(obs_t[1:]-obs_t[:-1]))
         idx = np.random.permutation(len(new_inputs))
-        val_data_size = min(self.validation_data_size, int(len(new_inputs) * 0.2))
-        self.train_inputs.extend([new_inputs[i] for i in idx[val_data_size:]])
-        self.train_targets.extend([new_targets[i] for i in idx[val_data_size:]])
-        self.val_inputs.extend([new_inputs[i] for i in idx[:val_data_size]])
-        self.val_targets.extend([new_targets[i] for i in idx[:val_data_size]])
+        self.train_inputs.extend([new_inputs[i] for i in idx])
+        self.train_targets.extend([new_targets[i] for i in idx])
 
         self.dynamics_model.fit_input_stats(self.train_inputs)
 
         train_dataset = EnsembleDataset(self.train_inputs, self.train_targets, self.ensemble_size)
-        val_dataset = EnsembleDataset(self.val_inputs, self.val_targets, self.ensemble_size)
         train_dl = DataLoader(train_dataset, batch_size=32, shuffle=True)
-        val_dl = DataLoader(val_dataset, 128)
 
         train_losses, val_losses = [], []
         
@@ -159,29 +153,11 @@ class DynamicsModelTrainer:
                     acc_train_loss.accumulate(train_loss.item(), batch_size)
                 train_losses.append(acc_train_loss.item())
 
-                # validation
-                self.dynamics_model.eval()
-                acc_val_loss = AccumulatedValue()
-                for batch_in, batch_tar in val_dl:
-                    batch_size = len(batch_in)
-                    batch_in.transpose_(0, 1).to(self.device_name)
-                    batch_tar.transpose_(0, 1).to(self.device_name)
-                    batch_in = batch_in.to(self.device_name)
-                    batch_tar = batch_tar.to(self.device_name)
-
-                    mean, logvar = self.dynamics_model(batch_in)
-                    val_loss = ((mean - batch_tar) ** 2) * torch.exp(-logvar) + logvar
-                    # assert val_loss.size() == (self.ensemble_size, batch_size, 1 + self.state_dim), "val_loss size {}".format(val_loss.size())
-                    val_loss = val_loss.sum(0).mean(0).sum(0)
-                    val_loss += 0.01 * self.dynamics_model.logvar_penalty_term()
-                    acc_val_loss.accumulate(val_loss.item(), batch_size)
-
-                val_losses.append(acc_val_loss.item())
 
                 # pbar.write("[ITER {}] train loss:{:.3f},  validation loss:{:.3f}".format(
                 #     itr, acc_train_loss.item(), acc_val_loss.item()))
                 pbar.update()
 
-            pbar.write("final train loss: {:.3f},  validation loss: {:.3f}".format(train_losses[-1], val_losses[-1]))
+            pbar.write("final train loss: {:.3f}".format(train_losses[-1]))
 
-        return train_losses, val_losses
+        return train_losses

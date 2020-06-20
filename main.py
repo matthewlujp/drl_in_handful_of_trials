@@ -3,7 +3,6 @@ from dynamics_model import DynamicsModel, DynamicsModelTrainer
 
 import gym
 import torch
-import torch.multiprocessing as mp
 import numpy as np
 from tqdm import tqdm
 import pickle
@@ -25,41 +24,21 @@ CEM_SAMPLE_SIZE = 100
 CEM_ELITE_RATE = 0.1
 CEM_MAX_ITER = 5
 TRAJECTORIES_PER_EPOCH = 1
-DYNAMICS_MODEL_TRAIN_ITER_PER_EPOCH = 10
+DYNAMICS_MODEL_TRAIN_ITER_PER_EPOCH = 5
 PLAN_HORIZON = 25
+TASK_HORIZON = 1000
+ENSEMBLE_SIZE = 5
+
+# PARTICLE_SIZE = 10
+# CEM_SAMPLE_SIZE = 20
+# CEM_ELITE_RATE = 0.1
+# CEM_MAX_ITER = 5
+# TRAJECTORIES_PER_EPOCH = 1
+# DYNAMICS_MODEL_TRAIN_ITER_PER_EPOCH = 5
+# PLAN_HORIZON = 10
+# TASK_HORIZON = 1000
 
 
-def run_simulation_mp(queue, env_man, dynamics_model, has_controller_trained):
-    """
-    Params
-    queue: (mp.Queue)
-    env: (gym.env) An instance of environment. A new instance is created from this.
-    controller: (MPC)
-    should_visualize: bool
-    """
-    env = env_man.new_env()
-
-    controller = MPC(
-        dynamics_model, env.observation_space, env.action_space,
-        ENSEMBLE_SIZE, PARTICLE_SIZE, CEM_SAMPLE_SIZE, CEM_ELITE_RATE, CEM_MAX_ITER, PLAN_HORIZON,
-        cost_func=env_man.cost_func)
-    controller.has_model_trained = has_controller_trained
-
-    traj = Trajectory(env.observation_space.shape[0], 1)
-    obs = env.reset()
-    traj.add_observation(obs)
-    done = False
-    action_seq = None
-    while not done:
-        a, action_seq = controller.act(obs, action_seq)
-        _a = a[0] if isinstance(env.action_space, gym.spaces.Discrete) else a
-        next_obs, r, done, _ = env.step(_a)
-        traj.add_action(a)
-        traj.add_observation(next_obs)
-        traj.add_reward(r)
-        obs = next_obs
-
-    queue.put(traj)
 
 
 def run_simulation(env, controller, should_visualize=False):
@@ -69,12 +48,13 @@ def run_simulation(env, controller, should_visualize=False):
     controller: (MPC)
     should_visualize: bool
     """
-    traj = Trajectory(env.observation_space.shape[0], 1)
+    traj = Trajectory(env.observation_space.shape[0], env.action_space.shape[0])
     obs = env.reset()
     traj.add_observation(obs)
     done = False
     action_seq = None
-    while not done:
+    
+    for _ in range(TASK_HORIZON):
         a, action_seq = controller.act(obs, action_seq)
         _a = a[0] if isinstance(env.action_space, gym.spaces.Discrete) else a
         next_obs, r, done, _ = env.step(_a)
@@ -85,6 +65,9 @@ def run_simulation(env, controller, should_visualize=False):
         traj.add_observation(next_obs)
         traj.add_reward(r)
         obs = next_obs
+
+        if done:
+            break
 
     return traj
 
@@ -112,14 +95,9 @@ class Trainer:
         self.epoch = 0
         self.plan_horizon = PLAN_HORIZON
         self.ckpt_save_steps = args.ckpt_save_steps
-        self.simulation_process_count = args.simulation_process_count
-        print("CPU COUNTS:{},  SIMULATION PROCESSES NUMBER:{}".format(mp.cpu_count(), self.simulation_process_count))
         self.device_name = args.device
 
         self.env = self.env_man.new_env()
-
-        if self.simulation_process_count > 1:
-            self.queue = mp.Manager().Queue()
 
         state_dim, _, _ = space_extractor(self.env.observation_space)
         action_dim, _, _ = space_extractor(self.env.action_space)
@@ -133,9 +111,8 @@ class Trainer:
 
         self.trainer = DynamicsModelTrainer(self.dynamics_model, self.device_name, ENSEMBLE_SIZE)
 
-        self.logger = SimpleLogger(["mean_reward", "model_train_loss", "model_val_loss"])
+        self.logger = SimpleLogger(["mean_reward", "model_train_loss"])
         
-        self.check_action_evals = args.check_action_evals
 
         if args.ckpt_filepath:
             self.load_ckpt(args.ckpt_filepath)
@@ -152,44 +129,21 @@ class Trainer:
             with tqdm(total=TRAJECTORIES_PER_EPOCH) as pbar:
                 pbar.write("COLLECTING {} SAMPLES ............".format(TRAJECTORIES_PER_EPOCH))
 
-                if self.simulation_process_count > 1:
-                    with mp.Pool(self.simulation_process_count) as pool:
-                        pool.starmap_async(
-                            run_simulation_mp, 
-                            [(self.queue, self.env_man, self.dynamics_model, self.controller.has_model_trained) for i in range(TRAJECTORIES_PER_EPOCH)]
-                        )
-                        for i in range(TRAJECTORIES_PER_EPOCH):
-                            traj = self.queue.get()
-                            trajectories.append(traj)
-                            _, _, rs_t = traj.to_tensor()
-                            acc_reward.accumulate(rs_t.sum().item(), 1)
-                            pbar.write("sample {}  reward: {}".format(i+1, rs_t.sum().item()))
-                            pbar.update()
-                else:
-                    pbar.write("single process mode")
-                    for i in range(TRAJECTORIES_PER_EPOCH):
-                        traj = run_simulation(self.env, self.controller)
-                        trajectories.append(traj)
-                        _, _, rs_t = traj.to_tensor()
-                        acc_reward.accumulate(rs_t.sum().item(), 1)
-                        pbar.write("sample {}  reward: {}".format(i+1, rs_t.sum().item()))
-                        pbar.update()
+                for i in range(TRAJECTORIES_PER_EPOCH):
+                    traj = run_simulation(self.env, self.controller)
+                    trajectories.append(traj)
+                    _, _, rs_t = traj.to_tensor()
+                    acc_reward.accumulate(rs_t.sum().item(), 1)
+                    pbar.write("sample {}  reward: {}".format(i+1, rs_t.sum().item()))
+                    pbar.update()
 
                 pbar.write("mean reward: {}".format(acc_reward.item()))
 
             self.logger.append('mean_reward', acc_reward.item())
 
-            train_losses, val_losses = self.trainer.train(trajectories, iters=DYNAMICS_MODEL_TRAIN_ITER_PER_EPOCH)
+            train_losses = self.trainer.train(trajectories, iters=DYNAMICS_MODEL_TRAIN_ITER_PER_EPOCH)
             self.logger.extend("model_train_loss", train_losses)
-            self.logger.extend("model_val_loss", val_losses)
             self.controller.has_model_trained = True
-
-            if self.check_action_evals:
-                # test current controller for checking action evaluations
-                print("Testing current controller ......")
-                traj = run_simulation(self.env, self.controller, should_visualize=False)
-                _, _, r_ts = traj.to_tensor()
-                print("reward: {}".format(torch.sum(r_ts)))
 
             # save logger
             self.logger.save(os.path.join(self.log_dir, "epoch{}".format(epoch)))
@@ -249,15 +203,13 @@ class Trainer:
 
 if __name__ == '__main__':
     parser = ArgumentParser(description="Test MBRL(handful) with gym.")
-    parser.add_argument("save_dir", help="Path to a directory to save training data.")
-    parser.add_argument('-env', default='cartpole', choices={'cartpole', 'acrobot', 'pendulum'})
+    parser.add_argument("-save_dir", default="results/test", help="Path to a directory to save training data.")
+    parser.add_argument('-env', default='cartpole', choices={'cartpole', 'acrobot', 'pendulum', 'halfcheetah'})
     parser.add_argument("-max_epochs", default=100, type=int, help="Max train epochs.")
     parser.add_argument('-ckpt_filepath', help="Path to checkpoint file to load.")
     parser.add_argument('-ckpt_save_steps', default=10, type=int, help="How frequent a checkpoint is saved.")
     parser.add_argument('-device', default='cpu', choices={'cpu', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'})
-    parser.add_argument('-p', '--sim_processes', dest='simulation_process_count', default=1, type=int, help="Number of concurrent processes to collect samples.")
     parser.add_argument('-e', '--eval', action='store_true', help='Run sample trajectory with trained controller.')
-    parser.add_argument('--check_action_evals', action='store_true', help='Run control test every epoch.')
     args = parser.parse_args()
 
     torch.manual_seed(1)
@@ -265,10 +217,6 @@ if __name__ == '__main__':
     np.random.seed(1)
 
     
-    try:
-        mp.set_start_method('spawn')
-    except RuntimeError:
-        pass
 
     trainer = Trainer(args)
     if not args.eval:

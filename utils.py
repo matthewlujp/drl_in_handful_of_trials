@@ -46,8 +46,7 @@ class Trajectory:
         Params
         action: (np.ndarray [action_dim])
         """
-        assert action.shape[-1] == self.action_dim, "action size {}".format(
-            action.shape)
+        assert action.shape[-1] == self.action_dim, "action size {}".format(action.shape)
         self.actions.append(action)
 
     def add_observation(self, observation):
