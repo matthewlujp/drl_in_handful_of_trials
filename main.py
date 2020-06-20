@@ -20,13 +20,13 @@ from utils import AccumulatedValue, Trajectory
 
 
 ENSEMBLE_SIZE = 5
-PARTICLE_SIZE = 10
+PARTICLE_SIZE = 50
 CEM_SAMPLE_SIZE = 8
-CEM_ELITE_RATE = 0.4
+CEM_ELITE_RATE = 0.1
 CEM_MAX_ITER = 5
 TRAJECTORIES_PER_EPOCH = 1
 DYNAMICS_MODEL_TRAIN_ITER_PER_EPOCH = 4
-PLAN_HORIZON = 20
+PLAN_HORIZON = 25
 
 
 def run_simulation_mp(queue, env_man, dynamics_model, has_controller_trained):
