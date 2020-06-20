@@ -18,25 +18,25 @@ from utils import AccumulatedValue, Trajectory
 
 
 
-# ENSEMBLE_SIZE = 5
-# PARTICLE_SIZE = 20
-# CEM_SAMPLE_SIZE = 100
-# CEM_ELITE_RATE = 0.1
-# CEM_MAX_ITER = 5
-# TRAJECTORIES_PER_EPOCH = 1
-# DYNAMICS_MODEL_TRAIN_ITER_PER_EPOCH = 5
-# PLAN_HORIZON = 25
-# TASK_HORIZON = 1000
-
 ENSEMBLE_SIZE = 5
 PARTICLE_SIZE = 10
-CEM_SAMPLE_SIZE = 20
+CEM_SAMPLE_SIZE = 50
 CEM_ELITE_RATE = 0.1
 CEM_MAX_ITER = 5
 TRAJECTORIES_PER_EPOCH = 1
 DYNAMICS_MODEL_TRAIN_ITER_PER_EPOCH = 5
 PLAN_HORIZON = 10
 TASK_HORIZON = 1000
+
+# ENSEMBLE_SIZE = 5
+# PARTICLE_SIZE = 10
+# CEM_SAMPLE_SIZE = 20
+# CEM_ELITE_RATE = 0.1
+# CEM_MAX_ITER = 5
+# TRAJECTORIES_PER_EPOCH = 1
+# DYNAMICS_MODEL_TRAIN_ITER_PER_EPOCH = 5
+# PLAN_HORIZON = 10
+# TASK_HORIZON = 1000
 
 
 
@@ -207,7 +207,7 @@ if __name__ == '__main__':
     parser.add_argument('-env', default='cartpole', choices={'cartpole', 'acrobot', 'pendulum', 'halfcheetah'})
     parser.add_argument("-max_epochs", default=100, type=int, help="Max train epochs.")
     parser.add_argument('-ckpt_filepath', help="Path to checkpoint file to load.")
-    parser.add_argument('-ckpt_save_steps', default=10, type=int, help="How frequent a checkpoint is saved.")
+    parser.add_argument('-ckpt_save_steps', default=5, type=int, help="How frequent a checkpoint is saved.")
     parser.add_argument('-device', default='cpu', choices={'cpu', 'cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'})
     parser.add_argument('-e', '--eval', action='store_true', help='Run sample trajectory with trained controller.')
     args = parser.parse_args()
