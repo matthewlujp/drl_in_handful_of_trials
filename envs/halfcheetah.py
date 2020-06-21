@@ -8,19 +8,21 @@ class SurrogateHalfCheetah:
     OBSERVATION_SIZE = 27
     ACTION_SIZE = 6
 
-    def __init__(self):
-        self._env = make("HalfCheetahBulletEnv")
+    def __init__(self, env):
+        self._env = env
+        self._prev_pos = None
 
     def step(self, a):
         _next_obs, r, done, info = self._env.step(a)
         pos = self._env.robot_body.current_position()
-        next_obs = np.concatenate([pos[:1], _next_obs])
+        next_obs = np.concatenate([pos[:1] - self._prev_pos[:1], _next_obs])
         return next_obs, r, done, info
 
     def reset(self):
         _obs = self._env.reset()
         pos = self._env.robot_body.current_position()
-        return np.concatenate([pos[:1], _obs])
+        self._prev_pos = pos
+        return np.concatenate([pos[:1] - self._prev_pos[:1], _obs])
 
     def render(self, mode='human'):
         return self._env.render(mode)
