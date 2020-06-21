@@ -8,8 +8,8 @@ class SurrogateHalfCheetah:
     OBSERVATION_SIZE = 27
     ACTION_SIZE = 6
 
-    def __init__(self, env):
-        self._env = env
+    def __init__(self):
+        self._env = make("HalfCheetahBulletEnv")
         self._prev_pos = None
 
     def step(self, a):
